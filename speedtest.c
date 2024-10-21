@@ -62,6 +62,22 @@ typedef struct thread {
 
 thread_t thread[THREAD_NUMBER];
 
+void print_sockaddr_in(struct sockaddr_in *address) {
+    char ip_str[INET_ADDRSTRLEN];
+
+    // Convertire l'indirizzo IP in formato leggibile
+    inet_ntop(AF_INET, &(address->sin_addr), ip_str, INET_ADDRSTRLEN);
+
+    // Stampa delle informazioni
+    printf("Informazioni di sockaddr_in:\n");
+    printf("  - Famiglia di indirizzi: %d\n", address->sin_family);  // Dovrebbe essere AF_INET
+    printf("  - Porta: %d\n", ntohs(address->sin_port));  // Porta convertita in host byte order
+    printf("  - Indirizzo IP: %s\n", ip_str);  // Indirizzo IP come stringa
+}
+
+
+
+
 int get_ipv4_addr(char *domain_name, struct sockaddr_in *servinfo) {
     struct addrinfo hints, *addrinfo, *p;
     int status;
@@ -70,16 +86,25 @@ int get_ipv4_addr(char *domain_name, struct sockaddr_in *servinfo) {
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
 
-    if((status = getaddrinfo(domain_name, "http", &hints, &addrinfo)) != 0) {
+    printf("get info from %s\n", domain_name);
+    char * hostname = strtok(domain_name, ":");
+    char *porta = strtok(NULL, ":");
+
+    if (porta == NULL)
+        porta = "http";
+
+    if((status = getaddrinfo(hostname, porta, &hints, &addrinfo)) != 0) {
         printf("Resolve DNS Failed: Can't get ip address! (%s)\n", domain_name);
         return 0;
     }
+
 
     for(p=addrinfo; p!=NULL; p=p->ai_next) {
         if(p->ai_family == AF_INET) {
             memcpy(servinfo, (struct sockaddr_in *)p->ai_addr, sizeof(struct sockaddr_in));
         }
     }
+
     freeaddrinfo(addrinfo);
     return 1;
 }
@@ -110,7 +135,7 @@ int get_http_file(struct sockaddr_in *serv, char *domain_name, char *request_url
             "Accept: */*\r\n\r\n", request_url, domain_name);                                                                 
 
     if(send(fd, sbuf, strlen(sbuf), 0) != strlen(sbuf)) {
-        perror("Can't send data to server\n");
+        //perror("Can't send data to server\n");
         if(fd) close(fd);
         return 0;
     }
@@ -255,7 +280,6 @@ int get_best_server(server_data_t *nearest_servers) {
     struct sockaddr_in servinfo;
 
     sprintf(filePath, "%s%s", FILE_DIRECTORY_PATH, latency_name);
-
     //Generate request url for latency
     for(i=0; i<NEAREST_SERVERS_NUM; i++) {
         char *ptr=NULL;
@@ -280,7 +304,6 @@ int get_best_server(server_data_t *nearest_servers) {
 
             ptr = strtok(NULL, "/");
         }
-
         //Get domain name
         sscanf(latency_url[i], "http://%[^/]", nearest_servers[i].domain_name);
 
@@ -413,13 +436,14 @@ void *download_thread(void *arg) {
     struct timeval tv;
     fd_set fdSet;
 
+
     if((fd = socket(thread[i].servinfo.sin_family, SOCK_STREAM, 0)) == -1) {                                                  
-        perror("Open socket error!\n");
+        perror("Open socket error !\n");
         goto err;
     }
 
     if(connect(fd, (struct sockaddr *)&thread[i].servinfo, sizeof(struct sockaddr)) == -1) {
-        perror("Socket connect error!\n");
+        perror("Socket connect error !\n");
         goto err;
     }
 
@@ -430,7 +454,7 @@ void *download_thread(void *arg) {
             "Accept: */*\r\n\r\n", thread[i].request_url, thread[i].domain_name);
 
     if(send(fd, sbuf, strlen(sbuf), 0) != strlen(sbuf)) {
-        perror("Can't send data to server\n");
+        //perror("Can't send data to server\n");
         goto err;
     }
 
@@ -548,7 +572,7 @@ void *upload_thread(void *arg) {
 
     for(j=0; j<UL_BUFFER_TIMES; j++) {
         if((size=send(fd, data, sizeof(data), 0)) != sizeof(data)) {
-            printf("Can't send data to server\n");
+            //printf("Can't send data to server\n");
             goto err;
         }
         pthread_mutex_lock(&pthread_mutex);
@@ -630,14 +654,12 @@ int main() {
             return 0;
         }
     }
-
     get_ip_address_position(CONFIG_REQUEST_URL, &client_data);
     printf("============================================\n");
     printf("Your IP Address : %s\n", client_data.ipAddr);
     printf("Your IP Location: %0.4lf, %0.4lf\n", client_data.latitude, client_data.longitude);
     printf("Your ISP        : %s\n", client_data.isp);
     printf("============================================\n");
-
     if(get_nearest_server(client_data.latitude, client_data.longitude, nearest_servers)==0) {
         printf("Can't get server list.\n"); 
         return 0;
@@ -657,15 +679,12 @@ int main() {
         timerVal.it_value.tv_sec = SPEEDTEST_DURATION;
         timerVal.it_value.tv_usec = 0;
         setitimer(ITIMER_REAL, &timerVal, NULL);
-
         pthread_create(&pid, NULL, calculate_dl_speed_thread, NULL);
         speedtest_download(&nearest_servers[best_server_index]);
-
         sleep(2);
         printf("\n");
         thread_all_stop=0;
         setitimer(ITIMER_REAL, &timerVal, NULL);
-
         pthread_create(&pid, NULL, calculate_ul_speed_thread, NULL);
         speedtest_upload(&nearest_servers[best_server_index]);
         printf("\n");
